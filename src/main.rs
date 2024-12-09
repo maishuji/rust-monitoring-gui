@@ -1,6 +1,4 @@
 use eframe::egui;
-use std::borrow::BorrowMut;
-use std::future::IntoFuture;
 use std::sync::Arc;
 use std::time::Duration;
 use sysinfo::{CpuExt, System, SystemExt};
@@ -21,14 +19,13 @@ async fn update_cpu_usage(system: Arc<Mutex<System>>, cpu_usage: Arc<Mutex<f32>>
 
     loop {
         sleep(Duration::from_secs(1)).await;
-        println!(" Hello loop");
         let mut tmp_cpu: f32 = 0.0;
         match system.try_lock() {
             Ok(mut system_locked) => {
                 system_locked.refresh_cpu();
                 if let Some(cpu) = system_locked.cpus().get(0) {
                     tmp_cpu = cpu.cpu_usage();
-                    println!(" TmpCPU : {}", tmp_cpu);
+                    // println!(" TmpCPU : {}", tmp_cpu);
                 }
             }
             Err(_) => {
@@ -56,7 +53,6 @@ impl eframe::App for CpuMonitorApp {
             }
             Err(_) => {}
         }
-        //self.cpu_usage_fixed = ff.clone();
 
         // Show the central panel with CPU usage
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -81,11 +77,10 @@ impl eframe::App for CpuMonitorApp {
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
     let app = CpuMonitorApp::default();
-    let mut data_system = app.system.clone();
-    let mut data_cpu_usage = app.cpu_usage.clone();
-    println!("Updating..");
+    let system_shared = app.system.clone();
+    let cpu_usage_shared = app.cpu_usage.clone();
     tokio::spawn(async move {
-        update_cpu_usage(data_system, data_cpu_usage).await; // Update CPU usage periodically
+        update_cpu_usage(system_shared, cpu_usage_shared).await; // Update CPU usage periodically
     });
 
     // Run the native window with options
