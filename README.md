@@ -1,9 +1,9 @@
-# CPU Usage Monitor
+# System Monitor
 
-A simple CPU Usage Monitor application built with Rust using the eframe and sysinfo crates. This app displays the current CPU usage percentage and updates it periodically.
+A simple System Monitor application built with Rust using the eframe and sysinfo crates. This app displays the current CPU and RAM usage percentage and updates it periodically.
 ## Features
 
-- Monitors CPU usage and displays it as a percentage.
+- Monitors CPU and RAM usage and display and update it periodically
 - Refreshes the displayed value every second.
 - Built using the eframe GUI framework and sysinfo for system information.
 
