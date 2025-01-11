@@ -7,11 +7,14 @@ use tokio::time::sleep;
 
 #[derive(Default)]
 struct CpuMonitorApp {
+    hostname: String,
     cpu_usage_fixed: f32,
     mem_usage_fixed: f32,
     cpu_usage: Arc<Mutex<f32>>, // Store the current CPU usage (shared, safe-thread)
     mem_usage: Arc<Mutex<f32>>, // Store the current RAM usage (shared, safe-thread)
     system: Arc<Mutex<System>>, // The system object to retrieve CPU usage
+    cpu_count: usize,
+    total_ram: u64,
 }
 
 impl CpuMonitorApp {}
@@ -83,9 +86,22 @@ impl eframe::App for CpuMonitorApp {
 
         // Show the central panel with CPU usage
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.heading("CPU Usage Monitor");
-            ui.label(format!("CPU Usage: {:.2}%", self.cpu_usage_fixed));
-            ui.label(format!("RAM Usage: {:.2}%", self.mem_usage_fixed));
+            ui.heading("System Monitoring");
+
+            // CPU Information
+            ui.vertical(|ui| {
+                ui.label(format!("CPU Count {}", self.cpu_count));
+                ui.label(format!("CPU Usage: {:.2}%", self.cpu_usage_fixed));
+            });
+
+            // Memory Information
+            ui.vertical(|ui| {
+                ui.label(format!(
+                    "Total RAM (MB): {:.2}",
+                    self.total_ram as f64 / 1024.0
+                ));
+                ui.label(format!("RAM Usage: {:.2}%", self.mem_usage_fixed));
+            });
             ctx.request_repaint();
         });
     }
@@ -103,10 +119,29 @@ impl eframe::App for CpuMonitorApp {
 
 #[tokio::main]
 async fn main() -> Result<(), std::io::Error> {
-    let app = CpuMonitorApp::default();
+    let mut app = CpuMonitorApp::default();
     let system_shared = app.system.clone();
     let cpu_usage_shared = app.cpu_usage.clone();
     let mem_usage_shared = app.mem_usage.clone();
+
+    match system_shared.try_lock() {
+        Ok(mut system_lock) => {
+            system_lock.refresh_all();
+            println!("System name : {:?}", system_lock.host_name());
+            app.cpu_count = system_lock.cpus().len();
+            app.total_ram = system_lock.total_memory();
+            match system_lock.host_name() {
+                Some(hostname) => {
+                    app.hostname = hostname;
+                }
+                None => {
+                    app.hostname = String::from("<Unknown>");
+                }
+            }
+        }
+        Err(_) => {}
+    }
+
     tokio::spawn(async move {
         update_system_usage(system_shared, cpu_usage_shared, mem_usage_shared).await;
         // Update CPU usage periodically

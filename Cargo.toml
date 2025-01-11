@@ -1,6 +1,7 @@
 [package]
 name = "rust_gui_monitor_sys"
 version = "0.1.0"
+authors = ["Quentin Cartier quentin.cartier.dev@gmail.com"]
 edition = "2021"
 
 [dependencies]
