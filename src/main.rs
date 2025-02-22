@@ -23,6 +23,7 @@ struct CpuMonitorApp {
     app_sys_info: Arc<Mutex<AppSystemInfo>>,
     app_sys_info_fixed: AppSystemInfo, // App specific struct for system info
     cpu_count: usize,
+    os_version: String,
 }
 
 impl CpuMonitorApp {}
@@ -76,7 +77,6 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
 impl eframe::App for CpuMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //let mlocked = self.cpu_usage.lock();
-
         match self.app_sys_info.try_lock() {
             Ok(app_sys_info_locked) => {
                 self.cpu_count = app_sys_info_locked.cpu_count;
@@ -109,6 +109,8 @@ impl eframe::App for CpuMonitorApp {
                 .rounding(5.0) // Optional: round the corners
                 .show(ui, |ui| {
                     ui.vertical(|ui| {
+                        ui.label(format!("OS Version:  {}", self.os_version));
+                        ui.separator();
                         ui.label(format!("CPU Count {}", self.cpu_count));
                     });
                     ui.label(format!("CPUS Usage  [total - available]"));
@@ -187,6 +189,9 @@ async fn main() -> Result<(), std::io::Error> {
             app.cpu_count = system_lock.cpus().len();
             app.app_sys_info_fixed.total_mem = system_lock.total_memory();
             app.app_sys_info_fixed.cpu_usage_per_cpu = vec![0.0; app.cpu_count];
+            app.os_version = system_lock
+                .long_os_version()
+                .unwrap_or(String::from("Unknown"));
 
             match system_lock.host_name() {
                 Some(hostname) => {
