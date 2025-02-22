@@ -6,16 +6,26 @@ use tokio::sync::Mutex;
 use tokio::time::sleep;
 
 #[derive(Default)]
+struct AppSystemInfo {
+    cpu_count: usize,
+    total_mem: u64,
+    mem_usage: f32,
+    swap_usage: f32,
+}
+impl AppSystemInfo {}
+
+#[derive(Default)]
 struct CpuMonitorApp {
     hostname: String,
     cpu_usage_fixed: f32,
     cpu_usage_per_cpu_fixed: Vec<f32>,
     mem_usage_fixed: f32,
     cpu_usage_per_cpu: Arc<Mutex<Vec<f32>>>, // Store the current CPU usage (shared, safe-thread)
-    mem_usage: Arc<Mutex<f32>>,              // Store the current RAM usage (shared, safe-thread)
-    system: Arc<Mutex<System>>,              // The system object to retrieve CPU usage
+    system: Arc<Mutex<System>>,
+    app_sys_info: Arc<Mutex<AppSystemInfo>>, // App specific struct for system info
     cpu_count: usize,
     total_ram: u64,
+    swap_usage_fixed: f32,
 }
 
 impl CpuMonitorApp {}
@@ -23,7 +33,7 @@ impl CpuMonitorApp {}
 async fn update_system_usage(
     system: Arc<Mutex<System>>,
     cpu_usage: Arc<Mutex<Vec<f32>>>,
-    mem_usage: Arc<Mutex<f32>>,
+    app_sys_info: Arc<Mutex<AppSystemInfo>>,
 ) {
     // Update the CPU usage from the system stats
 
@@ -31,22 +41,36 @@ async fn update_system_usage(
         sleep(Duration::from_secs(1)).await;
         let mut tmp_cpu: Vec<f32> = vec![0.0; 4];
         let mut tmp_mem: f32 = 0.0;
+        let mut tmp_swap: f32 = 0.0;
+        let mut total_mem: u64 = 0;
         match system.try_lock() {
             Ok(mut system_locked) => {
-                system_locked.refresh_cpu();
-
+                system_locked.refresh_all();
                 for i in 0..4 {
                     tmp_cpu[i] = system_locked.cpus()[i].cpu_usage();
                 }
 
-                system_locked.refresh_all();
                 let avail_mem = system_locked.available_memory();
-                let total_mem = system_locked.total_memory();
+                total_mem = system_locked.total_memory();
 
                 tmp_mem = (total_mem - avail_mem) as f32 / total_mem as f32 * 100.0;
+                tmp_swap =
+                    system_locked.used_swap() as f32 / system_locked.total_swap() as f32 * 100.0;
             }
             Err(_) => {
                 println!("Failed to lock system")
+            }
+        }
+
+        match app_sys_info.try_lock() {
+            Ok(mut app_sys_info_locked) => {
+                app_sys_info_locked.swap_usage = tmp_swap;
+                app_sys_info_locked.cpu_count = tmp_cpu.len();
+                app_sys_info_locked.total_mem = total_mem;
+                app_sys_info_locked.mem_usage = tmp_mem;
+            }
+            Err(_) => {
+                println!("Failed to acquire lock for swap usage")
             }
         }
 
@@ -58,20 +82,23 @@ async fn update_system_usage(
                 println!("Failed to acquire lock for cpu usage")
             }
         }
-        match mem_usage.try_lock() {
-            Ok(mut mem_usage_locked) => {
-                *mem_usage_locked = tmp_mem;
-            }
-            Err(_) => {
-                println!("Failed to acquire lock for mem usage")
-            }
-        }
     }
 }
 
 impl eframe::App for CpuMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //let mlocked = self.cpu_usage.lock();
+
+        match self.app_sys_info.try_lock() {
+            Ok(app_sys_info_locked) => {
+                self.cpu_count = app_sys_info_locked.cpu_count;
+                //self.total_ram = app_sys_info_locked.total_ram;
+                self.mem_usage_fixed = app_sys_info_locked.mem_usage;
+                self.swap_usage_fixed = app_sys_info_locked.swap_usage;
+            }
+            Err(_) => {}
+        }
+
         match self.cpu_usage_per_cpu.try_lock() {
             Ok(cpu_usage_locked) => {
                 for i in 0..self.cpu_count {
@@ -92,13 +119,6 @@ impl eframe::App for CpuMonitorApp {
                     }
                     None => {}
                 }
-            }
-            Err(_) => {}
-        }
-
-        match self.mem_usage.try_lock() {
-            Ok(mem_usage_locked) => {
-                self.mem_usage_fixed = *mem_usage_locked;
             }
             Err(_) => {}
         }
@@ -144,7 +164,14 @@ impl eframe::App for CpuMonitorApp {
                         ui.label(format!("RAM Usage: {:.2}%", self.mem_usage_fixed));
                     });
                 });
-
+            Frame::group(&ui.style())
+                .stroke(Stroke::new(1.0, egui::Color32::DARK_GRAY))
+                .rounding(5.0)
+                .show(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.label(format!("Swap usage: {}", self.swap_usage_fixed));
+                    });
+                });
             ctx.request_repaint();
         });
     }
@@ -165,7 +192,7 @@ async fn main() -> Result<(), std::io::Error> {
     let mut app = CpuMonitorApp::default();
     let system_shared = app.system.clone();
     let cpu_usage_shared = app.cpu_usage_per_cpu.clone();
-    let mem_usage_shared = app.mem_usage.clone();
+    let app_sys_info_shared = app.app_sys_info.clone();
 
     match system_shared.try_lock() {
         Ok(mut system_lock) => {
@@ -188,7 +215,7 @@ async fn main() -> Result<(), std::io::Error> {
     }
 
     tokio::spawn(async move {
-        update_system_usage(system_shared, cpu_usage_shared, mem_usage_shared).await;
+        update_system_usage(system_shared, cpu_usage_shared, app_sys_info_shared).await;
         // Update CPU usage periodically
     });
 
