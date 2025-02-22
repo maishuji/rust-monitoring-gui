@@ -74,30 +74,37 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
     }
 }
 
+/// Update the AppSystemInfo structure to a snapshot of async AppSystemInfo to have stable
+/// info to show in GUI
+///
+fn fixed_update(app_sys_fixed: &mut AppSystemInfo, app_sys_async: Arc<Mutex<AppSystemInfo>>) {
+    match app_sys_async.try_lock() {
+        Ok(app_sys_info_locked) => {
+            //self.cpu_count = app_sys_info_locked.cpu_count;
+            //self.total_ram = app_sys_info_locked.total_ram;
+            app_sys_fixed.mem_usage = app_sys_info_locked.mem_usage;
+            app_sys_fixed.swap_usage = app_sys_info_locked.swap_usage;
+            app_sys_fixed.total_swap = app_sys_info_locked.total_swap;
+            for i in 0..4 {
+                match app_sys_fixed.cpu_usage_per_cpu.get_mut(i) {
+                    Some(cpu_usage) => match app_sys_info_locked.cpu_usage_per_cpu.get(i) {
+                        Some(updated_usage) => {
+                            *cpu_usage = *updated_usage;
+                        }
+                        None => {}
+                    },
+                    None => {}
+                }
+            }
+        }
+        Err(_) => {}
+    }
+}
+
 impl eframe::App for CpuMonitorApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         //let mlocked = self.cpu_usage.lock();
-        match self.app_sys_info.try_lock() {
-            Ok(app_sys_info_locked) => {
-                self.cpu_count = app_sys_info_locked.cpu_count;
-                //self.total_ram = app_sys_info_locked.total_ram;
-                self.app_sys_info_fixed.mem_usage = app_sys_info_locked.mem_usage;
-                self.app_sys_info_fixed.swap_usage = app_sys_info_locked.swap_usage;
-                self.app_sys_info_fixed.total_swap = app_sys_info_locked.total_swap;
-                for i in 0..self.cpu_count {
-                    match self.app_sys_info_fixed.cpu_usage_per_cpu.get_mut(i) {
-                        Some(cpu_usage) => match app_sys_info_locked.cpu_usage_per_cpu.get(i) {
-                            Some(updated_usage) => {
-                                *cpu_usage = *updated_usage;
-                            }
-                            None => {}
-                        },
-                        None => {}
-                    }
-                }
-            }
-            Err(_) => {}
-        }
+        fixed_update(&mut self.app_sys_info_fixed, self.app_sys_info.clone());
 
         // Show the central panel with CPU usage
         egui::CentralPanel::default().show(ctx, |ui| {
