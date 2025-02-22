@@ -10,7 +10,9 @@ struct AppSystemInfo {
     cpu_count: usize,
     total_mem: u64,
     mem_usage: f32,
+    total_swap: u64,
     swap_usage: f32,
+    cpu_usage_per_cpu: Vec<f32>,
 }
 impl AppSystemInfo {}
 
@@ -20,7 +22,6 @@ struct CpuMonitorApp {
     cpu_usage_fixed: f32,
     cpu_usage_per_cpu_fixed: Vec<f32>,
     mem_usage_fixed: f32,
-    cpu_usage_per_cpu: Arc<Mutex<Vec<f32>>>, // Store the current CPU usage (shared, safe-thread)
     system: Arc<Mutex<System>>,
     app_sys_info: Arc<Mutex<AppSystemInfo>>, // App specific struct for system info
     cpu_count: usize,
@@ -30,11 +31,7 @@ struct CpuMonitorApp {
 
 impl CpuMonitorApp {}
 
-async fn update_system_usage(
-    system: Arc<Mutex<System>>,
-    cpu_usage: Arc<Mutex<Vec<f32>>>,
-    app_sys_info: Arc<Mutex<AppSystemInfo>>,
-) {
+async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex<AppSystemInfo>>) {
     // Update the CPU usage from the system stats
 
     loop {
@@ -46,6 +43,7 @@ async fn update_system_usage(
         match system.try_lock() {
             Ok(mut system_locked) => {
                 system_locked.refresh_all();
+
                 for i in 0..4 {
                     tmp_cpu[i] = system_locked.cpus()[i].cpu_usage();
                 }
@@ -68,18 +66,10 @@ async fn update_system_usage(
                 app_sys_info_locked.cpu_count = tmp_cpu.len();
                 app_sys_info_locked.total_mem = total_mem;
                 app_sys_info_locked.mem_usage = tmp_mem;
+                app_sys_info_locked.cpu_usage_per_cpu = tmp_cpu;
             }
             Err(_) => {
                 println!("Failed to acquire lock for swap usage")
-            }
-        }
-
-        match cpu_usage.try_lock() {
-            Ok(mut cpu_usage_locked) => {
-                *cpu_usage_locked = tmp_cpu;
-            }
-            Err(_) => {
-                println!("Failed to acquire lock for cpu usage")
             }
         }
     }
@@ -95,15 +85,10 @@ impl eframe::App for CpuMonitorApp {
                 //self.total_ram = app_sys_info_locked.total_ram;
                 self.mem_usage_fixed = app_sys_info_locked.mem_usage;
                 self.swap_usage_fixed = app_sys_info_locked.swap_usage;
-            }
-            Err(_) => {}
-        }
 
-        match self.cpu_usage_per_cpu.try_lock() {
-            Ok(cpu_usage_locked) => {
                 for i in 0..self.cpu_count {
                     match self.cpu_usage_per_cpu_fixed.get_mut(i) {
-                        Some(cpu_usage) => match cpu_usage_locked.get(i) {
+                        Some(cpu_usage) => match app_sys_info_locked.cpu_usage_per_cpu.get(i) {
                             Some(updated_usage) => {
                                 *cpu_usage = *updated_usage;
                             }
@@ -113,7 +98,7 @@ impl eframe::App for CpuMonitorApp {
                     }
                 }
 
-                match cpu_usage_locked.get(1) {
+                match app_sys_info_locked.cpu_usage_per_cpu.get(1) {
                     Some(cpu_usage) => {
                         self.cpu_usage_fixed = *cpu_usage;
                     }
@@ -191,7 +176,6 @@ impl eframe::App for CpuMonitorApp {
 async fn main() -> Result<(), std::io::Error> {
     let mut app = CpuMonitorApp::default();
     let system_shared = app.system.clone();
-    let cpu_usage_shared = app.cpu_usage_per_cpu.clone();
     let app_sys_info_shared = app.app_sys_info.clone();
 
     match system_shared.try_lock() {
@@ -215,16 +199,16 @@ async fn main() -> Result<(), std::io::Error> {
     }
 
     tokio::spawn(async move {
-        update_system_usage(system_shared, cpu_usage_shared, app_sys_info_shared).await;
         // Update CPU usage periodically
+        update_system_usage(system_shared, app_sys_info_shared).await;
     });
 
     // Run the native window with options
     eframe::run_native(
-        "CPU Usage Monitor", // Window title
+        "System Usage Monitor", // Window title
         eframe::NativeOptions {
             drag_and_drop_support: true,
-            initial_window_size: Some(egui::vec2(400.0, 200.0)),
+            initial_window_size: Some(egui::vec2(400.0, 300.0)),
             ..Default::default()
         },
         Box::new(move |_cc| Box::new(app)),
