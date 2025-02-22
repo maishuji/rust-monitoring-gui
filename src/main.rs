@@ -19,27 +19,23 @@ impl AppSystemInfo {}
 #[derive(Default)]
 struct CpuMonitorApp {
     hostname: String,
-    cpu_usage_fixed: f32,
-    cpu_usage_per_cpu_fixed: Vec<f32>,
-    mem_usage_fixed: f32,
     system: Arc<Mutex<System>>,
-    app_sys_info: Arc<Mutex<AppSystemInfo>>, // App specific struct for system info
+    app_sys_info: Arc<Mutex<AppSystemInfo>>,
+    app_sys_info_fixed: AppSystemInfo, // App specific struct for system info
     cpu_count: usize,
-    total_ram: u64,
-    swap_usage_fixed: f32,
 }
 
 impl CpuMonitorApp {}
 
 async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex<AppSystemInfo>>) {
     // Update the CPU usage from the system stats
-
     loop {
         sleep(Duration::from_secs(1)).await;
         let mut tmp_cpu: Vec<f32> = vec![0.0; 4];
         let mut tmp_mem: f32 = 0.0;
         let mut tmp_swap: f32 = 0.0;
         let mut total_mem: u64 = 0;
+        let mut total_swap: u64 = 0;
         match system.try_lock() {
             Ok(mut system_locked) => {
                 system_locked.refresh_all();
@@ -50,6 +46,7 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
 
                 let avail_mem = system_locked.available_memory();
                 total_mem = system_locked.total_memory();
+                total_swap = system_locked.total_swap();
 
                 tmp_mem = (total_mem - avail_mem) as f32 / total_mem as f32 * 100.0;
                 tmp_swap =
@@ -67,6 +64,7 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
                 app_sys_info_locked.total_mem = total_mem;
                 app_sys_info_locked.mem_usage = tmp_mem;
                 app_sys_info_locked.cpu_usage_per_cpu = tmp_cpu;
+                app_sys_info_locked.total_swap = total_swap;
             }
             Err(_) => {
                 println!("Failed to acquire lock for swap usage")
@@ -83,11 +81,11 @@ impl eframe::App for CpuMonitorApp {
             Ok(app_sys_info_locked) => {
                 self.cpu_count = app_sys_info_locked.cpu_count;
                 //self.total_ram = app_sys_info_locked.total_ram;
-                self.mem_usage_fixed = app_sys_info_locked.mem_usage;
-                self.swap_usage_fixed = app_sys_info_locked.swap_usage;
-
+                self.app_sys_info_fixed.mem_usage = app_sys_info_locked.mem_usage;
+                self.app_sys_info_fixed.swap_usage = app_sys_info_locked.swap_usage;
+                self.app_sys_info_fixed.total_swap = app_sys_info_locked.total_swap;
                 for i in 0..self.cpu_count {
-                    match self.cpu_usage_per_cpu_fixed.get_mut(i) {
+                    match self.app_sys_info_fixed.cpu_usage_per_cpu.get_mut(i) {
                         Some(cpu_usage) => match app_sys_info_locked.cpu_usage_per_cpu.get(i) {
                             Some(updated_usage) => {
                                 *cpu_usage = *updated_usage;
@@ -96,13 +94,6 @@ impl eframe::App for CpuMonitorApp {
                         },
                         None => {}
                     }
-                }
-
-                match app_sys_info_locked.cpu_usage_per_cpu.get(1) {
-                    Some(cpu_usage) => {
-                        self.cpu_usage_fixed = *cpu_usage;
-                    }
-                    None => {}
                 }
             }
             Err(_) => {}
@@ -119,15 +110,14 @@ impl eframe::App for CpuMonitorApp {
                 .show(ui, |ui| {
                     ui.vertical(|ui| {
                         ui.label(format!("CPU Count {}", self.cpu_count));
-                        ui.label(format!("CPU Usage: {:.2}%", self.cpu_usage_fixed));
                     });
-
-                    // Create a grid with 2 columns (for index and usage)
-                    ui.label(format!("CPUS"));
+                    ui.label(format!("CPUS Usage  [total - available]"));
                     egui::Grid::new("cpu_usage_grid")
                         .num_columns(2) // Number of columns
                         .show(ui, |ui| {
-                            for (i, &usage) in self.cpu_usage_per_cpu_fixed.iter().enumerate() {
+                            for (i, &usage) in
+                                self.app_sys_info_fixed.cpu_usage_per_cpu.iter().enumerate()
+                            {
                                 // Display CPU index and usage
                                 ui.label(format!("CPU {}", i)); // CPU index (e.g., CPU 0)
                                 ui.label(format!("{:.2}%", usage)); // CPU usage percentage
@@ -144,9 +134,12 @@ impl eframe::App for CpuMonitorApp {
                     ui.vertical(|ui| {
                         ui.label(format!(
                             "Total RAM (MB): {:.2}",
-                            self.total_ram as f64 / 1024.0
+                            self.app_sys_info_fixed.total_mem as f64 / 1024.0
                         ));
-                        ui.label(format!("RAM Usage: {:.2}%", self.mem_usage_fixed));
+                        ui.label(format!(
+                            "RAM Usage: {:.2}%",
+                            self.app_sys_info_fixed.mem_usage
+                        ));
                     });
                 });
             Frame::group(&ui.style())
@@ -154,7 +147,16 @@ impl eframe::App for CpuMonitorApp {
                 .rounding(5.0)
                 .show(ui, |ui| {
                     ui.vertical(|ui| {
-                        ui.label(format!("Swap usage: {}", self.swap_usage_fixed));
+                        ui.label(format!(
+                            "Total Swap (MB): {:.2}",
+                            self.app_sys_info_fixed.total_swap as f64 / 1024.0
+                        ));
+                    });
+                    ui.vertical(|ui| {
+                        ui.label(format!(
+                            "Swap usage: {:.2}%",
+                            self.app_sys_info_fixed.swap_usage
+                        ));
                     });
                 });
             ctx.request_repaint();
@@ -183,8 +185,8 @@ async fn main() -> Result<(), std::io::Error> {
             system_lock.refresh_all();
             println!("System name : {:?}", system_lock.host_name());
             app.cpu_count = system_lock.cpus().len();
-            app.total_ram = system_lock.total_memory();
-            app.cpu_usage_per_cpu_fixed = vec![0.0; app.cpu_count];
+            app.app_sys_info_fixed.total_mem = system_lock.total_memory();
+            app.app_sys_info_fixed.cpu_usage_per_cpu = vec![0.0; app.cpu_count];
 
             match system_lock.host_name() {
                 Some(hostname) => {
