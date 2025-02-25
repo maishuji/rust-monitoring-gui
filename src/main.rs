@@ -1,7 +1,8 @@
 use eframe::egui::{self, Frame, Stroke};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::{CpuExt, LoadAvg, System, SystemExt};
+use sysinfo::{CpuExt, LoadAvg, NetworkExt, System, SystemExt};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
@@ -14,8 +15,15 @@ struct AppSystemInfo {
     swap_usage: f32,
     cpu_usage_per_cpu: Vec<f32>,
     load_average: LoadAvg,
+    networks: HashMap<String, NetworkInfo>,
 }
 impl AppSystemInfo {}
+
+#[derive(Default, Clone)]
+struct NetworkInfo {
+    rx: u64,
+    tx: u64,
+}
 
 #[derive(Default)]
 struct CpuMonitorApp {
@@ -40,6 +48,7 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
         let mut total_mem: u64 = 0;
         let mut total_swap: u64 = 0;
         let mut tmp_load_avg: LoadAvg = LoadAvg::default();
+        let mut tmp_networks: HashMap<String, NetworkInfo> = HashMap::new();
         match system.try_lock() {
             Ok(mut system_locked) => {
                 system_locked.refresh_all();
@@ -50,6 +59,13 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
                 let avail_mem = system_locked.available_memory();
                 total_mem = system_locked.total_memory();
                 total_swap = system_locked.total_swap();
+
+                for ndata in system_locked.networks() {
+                    let mut ninfo = NetworkInfo::default();
+                    ninfo.rx = ndata.1.packets_received();
+                    ninfo.tx = ndata.1.packets_transmitted();
+                    tmp_networks.insert(ndata.0.clone(), ninfo.clone());
+                }
 
                 tmp_mem = (total_mem - avail_mem) as f32 / total_mem as f32 * 100.0;
                 tmp_swap =
@@ -69,6 +85,7 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
                 app_sys_info_locked.cpu_usage_per_cpu = tmp_cpu;
                 app_sys_info_locked.total_swap = total_swap;
                 app_sys_info_locked.load_average = tmp_load_avg.clone();
+                app_sys_info_locked.networks = tmp_networks.clone();
             }
             Err(_) => {
                 println!("Failed to acquire lock for swap usage")
@@ -89,6 +106,7 @@ fn fixed_update(app_sys_fixed: &mut AppSystemInfo, app_sys_async: Arc<Mutex<AppS
             app_sys_fixed.swap_usage = app_sys_info_locked.swap_usage;
             app_sys_fixed.total_swap = app_sys_info_locked.total_swap;
             app_sys_fixed.load_average = app_sys_info_locked.load_average.clone();
+            app_sys_fixed.networks = app_sys_info_locked.networks.clone();
             for i in 0..4 {
                 match app_sys_fixed.cpu_usage_per_cpu.get_mut(i) {
                     Some(cpu_usage) => match app_sys_info_locked.cpu_usage_per_cpu.get(i) {
@@ -124,6 +142,16 @@ impl eframe::App for CpuMonitorApp {
                         ui.label(format!("Kernel: {}", self.kernel_version));
                         ui.separator();
                         ui.label(format!("CPU Count {}", self.cpu_count));
+                    });
+
+                    ui.vertical(|ui| {
+                        ui.label("Networks");
+                        for (net_name, net_info) in &self.app_sys_info_fixed.networks {
+                            ui.label(format!(
+                                "Name:{}, tx:{},rx:{}",
+                                net_name, net_info.tx, net_info.rx
+                            ));
+                        }
                     });
 
                     ui.vertical(|ui| {
