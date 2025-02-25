@@ -1,7 +1,7 @@
 use eframe::egui::{self, Frame, Stroke};
 use std::sync::Arc;
 use std::time::Duration;
-use sysinfo::{CpuExt, System, SystemExt};
+use sysinfo::{CpuExt, LoadAvg, System, SystemExt};
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 
@@ -13,6 +13,7 @@ struct AppSystemInfo {
     total_swap: u64,
     swap_usage: f32,
     cpu_usage_per_cpu: Vec<f32>,
+    load_average: LoadAvg,
 }
 impl AppSystemInfo {}
 
@@ -24,6 +25,7 @@ struct CpuMonitorApp {
     app_sys_info_fixed: AppSystemInfo, // App specific struct for system info
     cpu_count: usize,
     os_version: String,
+    kernel_version: String,
 }
 
 impl CpuMonitorApp {}
@@ -37,14 +39,14 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
         let mut tmp_swap: f32 = 0.0;
         let mut total_mem: u64 = 0;
         let mut total_swap: u64 = 0;
+        let mut tmp_load_avg: LoadAvg = LoadAvg::default();
         match system.try_lock() {
             Ok(mut system_locked) => {
                 system_locked.refresh_all();
-
                 for i in 0..4 {
                     tmp_cpu[i] = system_locked.cpus()[i].cpu_usage();
                 }
-
+                tmp_load_avg = system_locked.load_average();
                 let avail_mem = system_locked.available_memory();
                 total_mem = system_locked.total_memory();
                 total_swap = system_locked.total_swap();
@@ -66,6 +68,7 @@ async fn update_system_usage(system: Arc<Mutex<System>>, app_sys_info: Arc<Mutex
                 app_sys_info_locked.mem_usage = tmp_mem;
                 app_sys_info_locked.cpu_usage_per_cpu = tmp_cpu;
                 app_sys_info_locked.total_swap = total_swap;
+                app_sys_info_locked.load_average = tmp_load_avg.clone();
             }
             Err(_) => {
                 println!("Failed to acquire lock for swap usage")
@@ -85,6 +88,7 @@ fn fixed_update(app_sys_fixed: &mut AppSystemInfo, app_sys_async: Arc<Mutex<AppS
             app_sys_fixed.mem_usage = app_sys_info_locked.mem_usage;
             app_sys_fixed.swap_usage = app_sys_info_locked.swap_usage;
             app_sys_fixed.total_swap = app_sys_info_locked.total_swap;
+            app_sys_fixed.load_average = app_sys_info_locked.load_average.clone();
             for i in 0..4 {
                 match app_sys_fixed.cpu_usage_per_cpu.get_mut(i) {
                     Some(cpu_usage) => match app_sys_info_locked.cpu_usage_per_cpu.get(i) {
@@ -117,8 +121,17 @@ impl eframe::App for CpuMonitorApp {
                 .show(ui, |ui| {
                     ui.vertical(|ui| {
                         ui.label(format!("OS Version:  {}", self.os_version));
+                        ui.label(format!("Kernel: {}", self.kernel_version));
                         ui.separator();
                         ui.label(format!("CPU Count {}", self.cpu_count));
+                    });
+
+                    ui.vertical(|ui| {
+                        let load_avg = &self.app_sys_info_fixed.load_average;
+                        ui.label("Load Average");
+                        ui.label(format!("15min.: {}", load_avg.fifteen));
+                        ui.label(format!(" 5min.: {}", load_avg.five));
+                        ui.label(format!(" 1min.: {}", load_avg.one));
                     });
                     ui.label(format!("CPUS Usage  [total - available]"));
                     egui::Grid::new("cpu_usage_grid")
@@ -198,6 +211,9 @@ async fn main() -> Result<(), std::io::Error> {
             app.app_sys_info_fixed.cpu_usage_per_cpu = vec![0.0; app.cpu_count];
             app.os_version = system_lock
                 .long_os_version()
+                .unwrap_or(String::from("Unknown"));
+            app.kernel_version = system_lock
+                .kernel_version()
                 .unwrap_or(String::from("Unknown"));
 
             match system_lock.host_name() {
