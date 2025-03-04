@@ -137,15 +137,21 @@ impl eframe::App for CpuMonitorApp {
                 .stroke(Stroke::new(1.0, egui::Color32::BLACK)) // Set border thickness and color
                 .rounding(5.0) // Optional: round the corners
                 .show(ui, |ui| {
-                    ui.vertical(|ui| {
-                        ui.label(format!("OS Version:  {}", self.os_version));
-                        ui.label(format!("Kernel: {}", self.kernel_version));
-                        ui.separator();
-                        ui.label(format!("CPU Count {}", self.cpu_count));
-                    });
+                    Frame::group(&ui.style())
+                        .stroke(Stroke::new(1.0, egui::Color32::DARK_GRAY))
+                        .rounding(5.0)
+                        .show(ui, |ui| {
+                            ui.label(format!("OS Version:  {}", self.os_version));
+                            ui.label(format!("Kernel: {}", self.kernel_version));
+                            ui.separator();
+                            ui.label(format!("CPU Count {}", self.cpu_count));
+                        });
 
                     ui.vertical(|ui| {
-                        ui.label("Networks");
+                        ui.heading("Networks");
+                        if self.app_sys_info_fixed.networks.len() == 0 {
+                            ui.label(String::from("No information available"));
+                        }
                         for (net_name, net_info) in &self.app_sys_info_fixed.networks {
                             ui.label(format!(
                                 "Name:{}, tx:{},rx:{}",
@@ -153,27 +159,31 @@ impl eframe::App for CpuMonitorApp {
                             ));
                         }
                     });
-
-                    ui.vertical(|ui| {
-                        let load_avg = &self.app_sys_info_fixed.load_average;
-                        ui.label("Load Average");
-                        ui.label(format!("15min.: {}", load_avg.fifteen));
-                        ui.label(format!(" 5min.: {}", load_avg.five));
-                        ui.label(format!(" 1min.: {}", load_avg.one));
-                    });
-                    ui.label(format!("CPUS Usage  [total - available]"));
-                    egui::Grid::new("cpu_usage_grid")
-                        .num_columns(2) // Number of columns
-                        .show(ui, |ui| {
-                            for (i, &usage) in
-                                self.app_sys_info_fixed.cpu_usage_per_cpu.iter().enumerate()
-                            {
-                                // Display CPU index and usage
-                                ui.label(format!("CPU {}", i)); // CPU index (e.g., CPU 0)
-                                ui.label(format!("{:.2}%", usage)); // CPU usage percentage
-                                ui.end_row(); // End of the current row
-                            }
+                    ui.horizontal(|ui| {
+                        ui.vertical(|ui| {
+                            let load_avg = &self.app_sys_info_fixed.load_average;
+                            ui.heading("Load Average");
+                            ui.label(format!("15min.: {}", load_avg.fifteen));
+                            ui.label(format!(" 5min.: {}", load_avg.five));
+                            ui.label(format!(" 1min.: {}", load_avg.one));
                         });
+                        ui.separator();
+                        ui.vertical(|ui| {
+                            ui.heading(format!("CPUS Usage  [total - available]"));
+                            egui::Grid::new("cpu_usage_grid")
+                                .num_columns(2) // Number of columns
+                                .show(ui, |ui| {
+                                    for (i, &usage) in
+                                        self.app_sys_info_fixed.cpu_usage_per_cpu.iter().enumerate()
+                                    {
+                                        // Display CPU index and usage
+                                        ui.label(format!("CPU {}", i)); // CPU index (e.g., CPU 0)
+                                        ui.label(format!("{:.2}%", usage)); // CPU usage percentage
+                                        ui.end_row(); // End of the current row
+                                    }
+                                });
+                        });
+                    });
                 });
 
             // Memory Information
