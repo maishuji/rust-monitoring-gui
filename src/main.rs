@@ -52,7 +52,7 @@ async fn main() -> Result<(), std::io::Error> {
         "System Usage Monitor", // Window title
         eframe::NativeOptions {
             drag_and_drop_support: true,
-            initial_window_size: Some(egui::vec2(400.0, 300.0)),
+            initial_window_size: Some(egui::vec2(400.0, 400.0)),
             ..Default::default()
         },
         Box::new(move |_cc| Box::new(app)),

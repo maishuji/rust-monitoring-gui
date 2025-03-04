@@ -60,39 +60,41 @@ impl eframe::App for CpuMonitorApp {
                         });
                     });
                 });
+            ui.horizontal(|ui| {
+                Frame::group(&ui.style())
+                    .stroke(Stroke::new(1.0, egui::Color32::DARK_GRAY))
+                    .rounding(5.0)
+                    .show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            ui.label(format!(
+                                "Total RAM (MB): {:.2}",
+                                self.app_sys_info_fixed.total_mem as f64 / 1024.0
+                            ));
+                            ui.label(format!(
+                                "RAM Usage: {:.2}%",
+                                self.app_sys_info_fixed.mem_usage
+                            ));
+                        });
+                    }); // end of Frame
+                Frame::group(&ui.style())
+                    .stroke(Stroke::new(1.0, egui::Color32::DARK_GRAY))
+                    .rounding(5.0)
+                    .show(ui, |ui| {
+                        ui.vertical(|ui| {
+                            ui.label(format!(
+                                "Total Swap (MB): {:.2}",
+                                self.app_sys_info_fixed.total_swap as f64 / 1024.0
+                            ));
+                        });
+                        ui.vertical(|ui| {
+                            ui.label(format!(
+                                "Swap usage: {:.2}%",
+                                self.app_sys_info_fixed.swap_usage
+                            ));
+                        });
+                    }); // end of Frame
+            });
 
-            Frame::group(&ui.style())
-                .stroke(Stroke::new(1.0, egui::Color32::DARK_GRAY))
-                .rounding(5.0)
-                .show(ui, |ui| {
-                    ui.vertical(|ui| {
-                        ui.label(format!(
-                            "Total RAM (MB): {:.2}",
-                            self.app_sys_info_fixed.total_mem as f64 / 1024.0
-                        ));
-                        ui.label(format!(
-                            "RAM Usage: {:.2}%",
-                            self.app_sys_info_fixed.mem_usage
-                        ));
-                    });
-                });
-            Frame::group(&ui.style())
-                .stroke(Stroke::new(1.0, egui::Color32::DARK_GRAY))
-                .rounding(5.0)
-                .show(ui, |ui| {
-                    ui.vertical(|ui| {
-                        ui.label(format!(
-                            "Total Swap (MB): {:.2}",
-                            self.app_sys_info_fixed.total_swap as f64 / 1024.0
-                        ));
-                    });
-                    ui.vertical(|ui| {
-                        ui.label(format!(
-                            "Swap usage: {:.2}%",
-                            self.app_sys_info_fixed.swap_usage
-                        ));
-                    });
-                });
             ctx.request_repaint();
         });
     }
