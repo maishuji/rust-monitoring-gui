@@ -1,4 +1,4 @@
-# CPU Usage Monitor
+# System Usage Monitor
 
 A simple CPU Usage Monitor application built with Rust using the eframe and sysinfo crates. This app displays the current CPU usage percentage and updates it periodically.
 ## Features
